@@ -14,9 +14,20 @@ A native macOS and Linux controller for Elgato Key Lights. Luma uses one Zig bac
 - Identify-light command
 - Direct local communication; no cloud, browser, external assets, or telemetry
 
+## Downloads
+
+Every tagged GitHub release automatically publishes four native packages:
+
+- macOS Apple Silicon (`arm64`)
+- macOS Intel (`x86_64`)
+- Linux ARM64
+- Linux x86_64
+
+Download them from the [Releases page](https://github.com/saiemsaeed/luma-key-light/releases).
+
 ## macOS
 
-Requires Zig 0.16 or newer.
+Requires Zig 0.16 or newer when building from source.
 
 ```sh
 ./scripts/package-macos.sh
@@ -33,7 +44,7 @@ zig build run
 
 ## Linux
 
-Install the native UI dependencies first.
+Released Linux binaries require GTK 3 and WebKitGTK 4.1 at runtime. Install the development packages below only when building from source.
 
 Ubuntu/Debian:
 
@@ -47,13 +58,22 @@ Fedora:
 sudo dnf install webkit2gtk4.1-devel gtk3-devel
 ```
 
-Then install Luma:
+Then build and install Luma:
 
 ```sh
 ./scripts/install-linux.sh
 ```
 
 It will appear in the desktop application launcher.
+
+## Publishing a release
+
+Push a version tag and GitHub Actions will test, package, and attach all four binaries automatically:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
 
 ## Options
 

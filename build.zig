@@ -18,6 +18,10 @@ pub fn build(b: *std.Build) void {
 
     switch (target.result.os.tag) {
         .macos => {
+            if (b.graph.environ_map.get("SDKROOT")) |sdk_root| {
+                const frameworks = b.pathResolve(&.{ sdk_root, "System/Library/Frameworks" });
+                module.addFrameworkPath(.{ .cwd_relative = frameworks });
+            }
             module.linkFramework("WebKit", .{});
             module.linkSystemLibrary("dl", .{});
         },
