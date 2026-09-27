@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#11110f">
+  <title>Luma · Key Light</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="ambient ambient-warm"></div>
+  <div class="ambient ambient-cool"></div>
+  <main class="app-shell">
+    <header>
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span></div>
+        <div><h1>Luma</h1><p>LIGHT CONTROL</p></div>
+      </div>
+      <button class="icon-button" id="settingsButton" aria-label="Open device details">
+        <svg viewBox="0 0 24 24"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.55v-.1A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.1 15a1.7 1.7 0 0 0-1.6-1H2V10h.5a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.56 4.2l.06.06A1.7 1.7 0 0 0 8.5 4.6a1.7 1.7 0 0 0 1-1.6V2h4v1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 18.9 9a1.7 1.7 0 0 0 1.6 1h.5v4h-.5a1.7 1.7 0 0 0-1.1 1Z"/></svg>
+      </button>
+    </header>
+
+    <section class="device-heading">
+      <div><span class="eyebrow">KEY LIGHT MK.2</span><h2 id="deviceName">Studio Light</h2></div>
+      <div class="connection"><span class="status-dot"></span><span id="connectionText">Connecting</span></div>
+    </section>
+
+    <section class="hero-card" id="heroCard">
+      <div class="light-visual" id="lightVisual">
+        <div class="light-glow"></div>
+        <div class="light-face"><div class="light-texture"></div></div>
+        <div class="light-stem"></div>
+        <div class="light-base"></div>
+      </div>
+      <button class="power-button" id="powerButton" aria-label="Toggle light" disabled>
+        <svg viewBox="0 0 24 24"><path d="M12 2v10M6.35 5.35a8 8 0 1 0 11.3 0"/></svg>
+      </button>
+      <div class="power-copy"><strong id="powerLabel">OFF</strong><span>Tap to toggle</span></div>
+    </section>
+
+    <section class="control-card">
+      <div class="control-heading"><div class="control-icon sun-icon">☀</div><div><span>Brightness</span><strong id="brightnessValue">—</strong></div></div>
+      <input id="brightness" type="range" min="3" max="100" value="20" aria-label="Brightness" disabled>
+      <div class="range-labels"><span>DIM</span><span>BRIGHT</span></div>
+    </section>
+
+    <section class="control-card temperature-card">
+      <div class="control-heading"><div class="control-icon temperature-icon">◐</div><div><span>Color temperature</span><strong id="temperatureValue">—</strong></div></div>
+      <input id="temperature" type="range" min="2900" max="7000" step="50" value="4300" aria-label="Color temperature" disabled>
+      <div class="range-labels"><span>WARM</span><span>COOL</span></div>
+    </section>
+
+    <section class="scenes-section">
+      <div class="section-title"><h3>Scenes</h3><span>QUICK SET</span></div>
+      <div class="scenes">
+        <button class="scene" data-brightness="35" data-kelvin="3200"><i style="--scene:#ffae54"></i><span>Warm</span><small>3200 K</small></button>
+        <button class="scene" data-brightness="65" data-kelvin="4300"><i style="--scene:#ffd89b"></i><span>Studio</span><small>4300 K</small></button>
+        <button class="scene" data-brightness="80" data-kelvin="5600"><i style="--scene:#eaf4ff"></i><span>Daylight</span><small>5600 K</small></button>
+        <button class="scene" data-brightness="10" data-kelvin="2900"><i style="--scene:#e9893f"></i><span>Night</span><small>10% · 2900 K</small></button>
+      </div>
+    </section>
+  </main>
+
+  <aside class="details" id="details" aria-hidden="true">
+    <button class="details-scrim" id="detailsScrim" aria-label="Close details"></button>
+    <div class="details-panel">
+      <div class="details-header"><div><span class="eyebrow">DEVICE</span><h2>Details</h2></div><button class="icon-button" id="closeDetails" aria-label="Close">×</button></div>
+      <div class="detail-group">
+        <div class="detail-row"><span>Model</span><strong id="infoModel">—</strong></div>
+        <div class="detail-row"><span>Firmware</span><strong id="infoFirmware">—</strong></div>
+        <div class="detail-row"><span>Wi-Fi</span><strong id="infoWifi">—</strong></div>
+        <div class="detail-row"><span>Signal</span><strong id="infoSignal">—</strong></div>
+        <div class="detail-row"><span>Address</span><strong id="infoAddress">—</strong></div>
+      </div>
+      <button class="secondary-button" id="identifyButton">Identify light</button>
+      <p class="details-note">Luma communicates directly with your light over your local network. Nothing leaves your device.</p>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

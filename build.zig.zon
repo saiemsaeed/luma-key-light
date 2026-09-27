@@ -1,0 +1,17 @@
+.{
+    .name = .luma,
+    .version = "0.1.0",
+    .fingerprint = 0xe8687938f0639dd0,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "README.md",
+        "scripts",
+        "src",
+        "vendor/webview/core/include",
+        "vendor/webview/core/src/webview.cc",
+        "vendor/webview/LICENSE",
+    },
+}
