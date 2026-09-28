@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const webview = @cImport({
     @cInclude("webview/api.h");
 });
@@ -148,6 +149,10 @@ fn proxy(request: *Request, context: *Context, path: []const u8) !void {
     });
     defer context.allocator.free(url);
 
+    // Zig's resolver does not currently preserve mDNS IPv6 scope IDs on Linux.
+    // curl uses the system resolver (Avahi/NSS), which handles .local lights correctly.
+    if (builtin.os.tag == .linux) return proxyWithCurl(request, context, url, payload);
+
     var output: std.Io.Writer.Allocating = .init(context.allocator);
     defer output.deinit();
     var client: std.http.Client = .{ .allocator = context.allocator, .io = context.io };
@@ -174,6 +179,76 @@ fn proxy(request: *Request, context: *Context, path: []const u8) !void {
 
     try request.respond(output.writer.buffered(), .{
         .status = result.status,
+        .keep_alive = false,
+        .extra_headers = &.{
+            .{ .name = "content-type", .value = "application/json" },
+            .{ .name = "cache-control", .value = "no-store" },
+        },
+    });
+}
+
+fn proxyWithCurl(request: *Request, context: *Context, url: []const u8, payload: ?[]const u8) !void {
+    var argv: [16][]const u8 = undefined;
+    var count: usize = 0;
+    const add = struct {
+        fn value(args: *[16][]const u8, len: *usize, item: []const u8) void {
+            args[len.*] = item;
+            len.* += 1;
+        }
+    }.value;
+
+    add(&argv, &count, "curl");
+    add(&argv, &count, "--silent");
+    add(&argv, &count, "--show-error");
+    add(&argv, &count, "--connect-timeout");
+    add(&argv, &count, "3");
+    add(&argv, &count, "--max-time");
+    add(&argv, &count, "8");
+    add(&argv, &count, "--request");
+    add(&argv, &count, @tagName(request.head.method));
+    add(&argv, &count, "--header");
+    add(&argv, &count, "Content-Type: application/json");
+    add(&argv, &count, "--write-out");
+    add(&argv, &count, "\\n%{http_code}");
+    if (payload) |body| {
+        add(&argv, &count, "--data-binary");
+        add(&argv, &count, body);
+    }
+    add(&argv, &count, url);
+
+    const result = std.process.run(context.allocator, context.io, .{
+        .argv = argv[0..count],
+        .stdout_limit = .limited(64 * 1024),
+        .stderr_limit = .limited(8 * 1024),
+        .timeout = .{ .duration = .{ .clock = .awake, .raw = .fromSeconds(10) } },
+    }) catch {
+        return request.respond("{\"error\":\"Light is unreachable\"}", .{
+            .status = .bad_gateway,
+            .keep_alive = false,
+            .extra_headers = &.{.{ .name = "content-type", .value = "application/json" }},
+        });
+    };
+    defer context.allocator.free(result.stdout);
+    defer context.allocator.free(result.stderr);
+
+    const succeeded = switch (result.term) {
+        .exited => |code| code == 0,
+        else => false,
+    };
+    if (!succeeded) {
+        return request.respond("{\"error\":\"Light is unreachable\"}", .{
+            .status = .bad_gateway,
+            .keep_alive = false,
+            .extra_headers = &.{.{ .name = "content-type", .value = "application/json" }},
+        });
+    }
+
+    const status_separator = std.mem.lastIndexOfScalar(u8, result.stdout, '\n') orelse return error.InvalidUpstreamResponse;
+    const status_code = try std.fmt.parseInt(u10, result.stdout[status_separator + 1 ..], 10);
+    const response_body = result.stdout[0..status_separator];
+
+    try request.respond(response_body, .{
+        .status = @enumFromInt(status_code),
         .keep_alive = false,
         .extra_headers = &.{
             .{ .name = "content-type", .value = "application/json" },
