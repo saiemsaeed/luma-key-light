@@ -23,11 +23,13 @@ pub fn build(b: *std.Build) void {
                 module.addFrameworkPath(.{ .cwd_relative = frameworks });
             }
             module.linkFramework("WebKit", .{});
+            module.linkSystemLibrary("dns_sd", .{});
             module.linkSystemLibrary("dl", .{});
         },
         .linux => {
             module.linkSystemLibrary("webkit2gtk-4.1", .{ .use_pkg_config = .force });
             module.linkSystemLibrary("gtk+-3.0", .{ .use_pkg_config = .force });
+            module.linkSystemLibrary("avahi-client", .{ .use_pkg_config = .force });
             module.linkSystemLibrary("dl", .{});
         },
         else => @panic("Luma currently supports macOS and Linux"),
