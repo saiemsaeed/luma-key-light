@@ -3,10 +3,11 @@ const ui = {
   hero: $('#heroCard'), power: $('#powerButton'), powerLabel: $('#powerLabel'),
   brightness: $('#brightness'), brightnessValue: $('#brightnessValue'),
   temperature: $('#temperature'), temperatureValue: $('#temperatureValue'),
-  connection: $('#connectionText'), details: $('#details'), toast: $('#toast')
+  connection: $('#connectionText'), details: $('#details'), toast: $('#toast'),
+  deviceSelect: $('#deviceSelect'), discover: $('#discoverButton')
 };
 
-const model = { on: false, brightness: 20, kelvin: 4300, connected: false, busy: false };
+const model = { on: false, brightness: 20, kelvin: 4300, connected: false, busy: false, devices: [] };
 let toastTimer;
 let interactingUntil = 0;
 
@@ -129,6 +130,105 @@ document.querySelectorAll('.scene').forEach((button) => button.addEventListener(
   sendState({ on: true, brightness: model.brightness, kelvin: model.kelvin });
 }));
 
+function deviceKey(device) {
+  return device.id || `${device.host}:${device.port}`;
+}
+
+async function selectDiscoveredDevice(device) {
+  return fetchJSON('/api/devices/select', {
+    method: 'POST',
+    body: JSON.stringify({ id: device.id || null, host: device.host, port: device.port })
+  });
+}
+
+async function discoverLights(silent = false) {
+  ui.discover.disabled = true;
+  ui.deviceSelect.disabled = true;
+  try {
+    // Read provenance before scanning: an explicit --host must always beat a
+    // browser-local remembered choice.
+    const config = await fetchJSON('/api/config');
+    const devices = await fetchJSON('/api/devices');
+    const rememberedId = localStorage.getItem('lumaDeviceId');
+    const remembered = !config.hostExplicit && rememberedId
+      ? devices.find((device) => device.id === rememberedId)
+      : null;
+    if (remembered && !remembered.selected) {
+      await selectDiscoveredDevice(remembered);
+      for (const device of devices) device.selected = deviceKey(device) === deviceKey(remembered);
+    }
+
+    const selected = devices.find((device) => device.selected);
+    // Establish a preference on first use, but never replace an existing one
+    // merely because its device missed a transient scan.
+    if (!rememberedId && selected?.id) localStorage.setItem('lumaDeviceId', selected.id);
+    model.devices = devices;
+    ui.deviceSelect.replaceChildren();
+
+    if (!selected) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = config.hostExplicit
+        ? `Configured · ${config.host}:${config.port}`
+        : (devices.length ? 'Current configured light' : 'No Key Lights found');
+      option.selected = true;
+      ui.deviceSelect.append(option);
+    }
+    for (const device of devices) {
+      const option = document.createElement('option');
+      option.value = deviceKey(device);
+      option.textContent = device.name || device.model || device.host;
+      option.selected = device.selected;
+      ui.deviceSelect.append(option);
+    }
+
+    if (!silent) showToast(devices.length === 1 ? 'Found 1 Key Light' : `Found ${devices.length} Key Lights`);
+    return devices;
+  } catch (error) {
+    model.devices = [];
+    ui.deviceSelect.replaceChildren();
+    const option = document.createElement('option');
+    option.textContent = 'Discovery unavailable';
+    ui.deviceSelect.append(option);
+    if (!silent) showToast('Could not scan for Key Lights');
+    return [];
+  } finally {
+    ui.discover.disabled = false;
+    ui.deviceSelect.disabled = model.devices.length === 0;
+  }
+}
+
+ui.deviceSelect.addEventListener('change', async () => {
+  const key = ui.deviceSelect.value;
+  if (key === '') return;
+  ui.deviceSelect.disabled = true;
+  try {
+    const selected = model.devices.find((device) => deviceKey(device) === key);
+    if (!selected) throw new Error('Selected light is no longer available');
+    await selectDiscoveredDevice(selected);
+    if (selected.id) localStorage.setItem('lumaDeviceId', selected.id);
+    for (const device of model.devices) device.selected = deviceKey(device) === key;
+    interactingUntil = 0;
+    model.connected = false;
+    render();
+    await refresh();
+    await loadDetails();
+    showToast('Key Light selected');
+  } catch (error) {
+    showToast('Could not select that light');
+    await discoverLights(true);
+  } finally {
+    ui.deviceSelect.disabled = false;
+  }
+});
+
+ui.discover.addEventListener('click', async () => {
+  await discoverLights(false);
+  interactingUntil = 0;
+  await refresh(true);
+  await loadDetails();
+});
+
 function setDetails(open) {
   ui.details.classList.toggle('open', open);
   ui.details.setAttribute('aria-hidden', String(!open));
@@ -164,6 +264,11 @@ function showToast(message) {
   toastTimer = setTimeout(() => ui.toast.classList.remove('show'), 2600);
 }
 
-render();
-refresh();
+async function initialize() {
+  render();
+  await discoverLights(true);
+  await refresh();
+}
+
+initialize();
 setInterval(() => refresh(true), 3000);

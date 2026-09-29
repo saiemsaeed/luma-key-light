@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const webview = @cImport({
     @cInclude("webview/api.h");
 });
+const discovery = @import("discovery.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -17,6 +18,7 @@ const Config = struct {
     device_port: u16 = 9123,
     listen_port: u16 = 9473,
     headless: bool = false,
+    host_explicit: bool = false,
 };
 
 const Context = struct {
@@ -24,6 +26,23 @@ const Context = struct {
     io: Io,
     environ_map: *const std.process.Environ.Map,
     config: Config,
+    selected_host: [256]u8 = undefined,
+    selected_host_len: usize = 0,
+    selected_port: u16 = 9123,
+    devices: [16]discovery.Device = undefined,
+    device_count: usize = 0,
+    selection_locked: bool = false,
+
+    fn host(self: *const Context) []const u8 {
+        return self.selected_host[0..self.selected_host_len];
+    }
+
+    fn select(self: *Context, host_name: []const u8, port: u16) error{HostNameTooLong}!void {
+        if (host_name.len > self.selected_host.len) return error.HostNameTooLong;
+        @memcpy(self.selected_host[0..host_name.len], host_name);
+        self.selected_host_len = host_name.len;
+        self.selected_port = port;
+    }
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -37,6 +56,7 @@ pub fn main(init: std.process.Init) !void {
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--host")) {
             config.host = args.next() orelse return error.MissingHost;
+            config.host_explicit = true;
         } else if (std.mem.eql(u8, arg, "--port")) {
             config.listen_port = try std.fmt.parseInt(u16, args.next() orelse return error.MissingPort, 10);
         } else if (std.mem.eql(u8, arg, "--device-port")) {
@@ -55,6 +75,21 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
+    // Zig 0.16 lazily scans the startup envp the first time it spawns a
+    // process. GTK/WebKit may replace that envp before the first API request,
+    // leaving Zig with a dangling pointer. Force the scan while envp is still
+    // valid; proxyWithCurl supplies the owned environment snapshot afterward.
+    if (builtin.os.tag == .linux and !config.headless) {
+        const result = try std.process.run(allocator, io, .{
+            .argv = &.{"/usr/bin/true"},
+            .environ_map = init.environ_map,
+            .stdout_limit = .limited(0),
+            .stderr_limit = .limited(0),
+        });
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+    }
+
     const address = Io.net.IpAddress.parse("127.0.0.1", config.listen_port) catch unreachable;
     var listener = try address.listen(io, .{ .reuse_address = true });
     defer listener.deinit(io);
@@ -64,12 +99,14 @@ pub fn main(init: std.process.Init) !void {
         .io = io,
         .environ_map = init.environ_map,
         .config = config,
+        .selection_locked = config.host_explicit,
     };
+    try context.select(config.host, config.device_port);
     var server_task = try io.concurrent(runServer, .{ &context, &listener });
     defer server_task.cancel(io) catch {};
 
     const url = try std.fmt.allocPrintSentinel(init.arena.allocator(), "http://127.0.0.1:{d}/", .{config.listen_port}, 0);
-    std.debug.print("Luma is running at {s}\nLight: {s}:{d}\n", .{ url, config.host, config.device_port });
+    std.debug.print("Luma is running at {s}\nLight: {s}:{d}\n", .{ url, context.host(), context.selected_port });
 
     if (config.headless) {
         _ = try server_task.await(io);
@@ -113,10 +150,16 @@ fn route(request: *Request, context: *Context) !void {
         var buffer: [512]u8 = undefined;
         const body = try std.fmt.bufPrint(
             &buffer,
-            "{{\"host\":\"{s}\",\"port\":{d}}}",
-            .{ context.config.host, context.config.device_port },
+            "{{\"host\":\"{s}\",\"port\":{d},\"hostExplicit\":{}}}",
+            .{ context.host(), context.selected_port, context.config.host_explicit },
         );
         return respond(request, body, "application/json");
+    }
+    if (std.mem.eql(u8, target, "/api/devices")) {
+        return discoverDevices(request, context);
+    }
+    if (std.mem.eql(u8, target, "/api/devices/select") and request.head.method == .POST) {
+        return selectDiscoveredDevice(request, context);
     }
 
     const upstream_path: ?[]const u8 = if (std.mem.eql(u8, target, "/api/state"))
@@ -139,6 +182,100 @@ fn route(request: *Request, context: *Context) !void {
     });
 }
 
+fn selectDiscoveredDevice(request: *Request, context: *Context) !void {
+    var body_buffer: [2048]u8 = undefined;
+    const reader = try request.readerExpectContinue(&body_buffer);
+    const payload = try reader.allocRemaining(context.allocator, .limited(body_buffer.len));
+    defer context.allocator.free(payload);
+
+    const Selection = struct {
+        id: ?[]const u8 = null,
+        host: ?[]const u8 = null,
+        port: ?u16 = null,
+    };
+    const parsed = std.json.parseFromSlice(Selection, context.allocator, payload, .{}) catch {
+        return request.respond("{\"error\":\"Invalid device selection\"}", .{
+            .status = .bad_request,
+            .keep_alive = false,
+            .extra_headers = &.{.{ .name = "content-type", .value = "application/json" }},
+        });
+    };
+    defer parsed.deinit();
+
+    const selection = parsed.value;
+    for (context.devices[0..context.device_count]) |*device| {
+        const has_stable_id = selection.id != null and selection.id.?.len > 0;
+        const id_matches = has_stable_id and std.mem.eql(u8, selection.id.?, device.idSlice());
+        const address_matches = if (!has_stable_id and selection.host != null)
+            selection.port != null and selection.port.? == device.port and
+                std.mem.eql(u8, selection.host.?, device.hostSlice())
+        else
+            false;
+        if (!id_matches and !address_matches) continue;
+
+        try context.select(device.hostSlice(), device.port);
+        context.selection_locked = true;
+        return respond(request, "{\"selected\":true}", "application/json");
+    }
+
+    return request.respond("{\"error\":\"Discovered device is no longer available\"}", .{
+        .status = .conflict,
+        .keep_alive = false,
+        .extra_headers = &.{.{ .name = "content-type", .value = "application/json" }},
+    });
+}
+
+fn discoverDevices(request: *Request, context: *Context) !void {
+    context.device_count = discovery.discover(context.io, &context.devices, 1500, 750) catch {
+        return request.respond("{\"error\":\"Device discovery is unavailable\"}", .{
+            .status = .service_unavailable,
+            .keep_alive = false,
+            .extra_headers = &.{.{ .name = "content-type", .value = "application/json" }},
+        });
+    };
+
+    if (!context.selection_locked and context.device_count > 0) {
+        var selected_index: usize = 0;
+        for (context.devices[0..context.device_count], 0..) |*device, index| {
+            if (std.mem.eql(u8, context.host(), device.hostSlice()) and
+                context.selected_port == device.port)
+            {
+                selected_index = index;
+                break;
+            }
+        }
+        const selected = &context.devices[selected_index];
+        try context.select(selected.hostSlice(), selected.port);
+    }
+
+    const DeviceJson = struct {
+        name: []const u8,
+        host: []const u8,
+        port: u16,
+        id: []const u8,
+        model: []const u8,
+        selected: bool,
+    };
+    var devices: [16]DeviceJson = undefined;
+    for (context.devices[0..context.device_count], 0..) |*device, index| {
+        const name = device.nameSlice();
+        const host = device.hostSlice();
+        const model = device.modelSlice();
+        devices[index] = .{
+            .name = if (name.len > 0) name else if (model.len > 0) model else host,
+            .host = host,
+            .port = device.port,
+            .id = device.idSlice(),
+            .model = model,
+            .selected = std.mem.eql(u8, context.host(), host) and context.selected_port == device.port,
+        };
+    }
+
+    const body = try std.json.Stringify.valueAlloc(context.allocator, devices[0..context.device_count], .{});
+    defer context.allocator.free(body);
+    return respond(request, body, "application/json");
+}
+
 fn proxy(request: *Request, context: *Context, path: []const u8) !void {
     var body_buffer: [64 * 1024]u8 = undefined;
     var payload: ?[]u8 = null;
@@ -149,8 +286,8 @@ fn proxy(request: *Request, context: *Context, path: []const u8) !void {
     defer if (payload) |bytes| context.allocator.free(bytes);
 
     const url = try std.fmt.allocPrint(context.allocator, "http://{s}:{d}{s}", .{
-        context.config.host,
-        context.config.device_port,
+        context.host(),
+        context.selected_port,
         path,
     });
     defer context.allocator.free(url);

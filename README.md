@@ -12,6 +12,7 @@ A native macOS and Linux controller for Elgato Key Lights. Luma uses one Zig bac
 - Live state synchronization
 - Device, firmware, Wi-Fi, and signal information
 - Identify-light command
+- Automatic Key Light discovery over Bonjour/mDNS
 - Direct local communication; no cloud, browser, external assets, or telemetry
 
 ## Downloads
@@ -44,18 +45,18 @@ zig build run
 
 ## Linux
 
-Released Linux binaries require GTK 3 and WebKitGTK 4.1 at runtime. Install the development packages below only when building from source.
+Released Linux binaries require GTK 3, WebKitGTK 4.1, and Avahi at runtime. Install the development packages below only when building from source.
 
 Ubuntu/Debian:
 
 ```sh
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libavahi-client-dev
 ```
 
 Fedora:
 
 ```sh
-sudo dnf install webkit2gtk4.1-devel gtk3-devel
+sudo dnf install webkit2gtk4.1-devel gtk3-devel avahi-devel
 ```
 
 Then build and install Luma:
@@ -84,7 +85,9 @@ git push origin v0.2.0
 --headless           Run the backend without opening a window
 ```
 
-If `.local` resolution is unavailable on Linux, launch with the light's IP:
+Luma automatically discovers compatible Elgato lights advertised as `_elg._tcp` over Bonjour/mDNS. Open device details to rescan or choose between discovered lights; the selection is remembered by device ID.
+
+If discovery or `.local` resolution is unavailable, launch with the light's IP:
 
 ```sh
 luma --host 192.168.x.x

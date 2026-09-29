@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.saiemsaeed.luma",
+  "name": "Luma Key Light",
+  "version": "0.1.0",
+  "author": "Saiem Saeed",
+  "license": "MIT",
+  "description": "Control an Elgato Key Light from the Omarchy bar.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Luma Key Light",
+    "description": "Power, brightness, temperature, scenes, and Luma launcher",
+    "category": "System",
+    "aliases": ["luma", "key-light", "elgato"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "host": "elgato-key-light-mk-2-2840.local",
+      "port": 9123,
+      "refreshIntervalSec": 5
+    },
+    "schema": [
+      {
+        "key": "host",
+        "type": "string",
+        "label": "Light hostname or IP",
+        "defaultValue": "elgato-key-light-mk-2-2840.local"
+      },
+      {
+        "key": "port",
+        "type": "integer",
+        "label": "Light API port",
+        "min": 1,
+        "max": 65535,
+        "defaultValue": 9123
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 2,
+        "max": 60,
+        "defaultValue": 5
+      }
+    ]
+  }
+}
