@@ -22,6 +22,7 @@ const Config = struct {
 const Context = struct {
     allocator: Allocator,
     io: Io,
+    environ_map: *const std.process.Environ.Map,
     config: Config,
 };
 
@@ -58,7 +59,12 @@ pub fn main(init: std.process.Init) !void {
     var listener = try address.listen(io, .{ .reuse_address = true });
     defer listener.deinit(io);
 
-    var context: Context = .{ .allocator = allocator, .io = io, .config = config };
+    var context: Context = .{
+        .allocator = allocator,
+        .io = io,
+        .environ_map = init.environ_map,
+        .config = config,
+    };
     var server_task = try io.concurrent(runServer, .{ &context, &listener });
     defer server_task.cancel(io) catch {};
 
@@ -218,6 +224,9 @@ fn proxyWithCurl(request: *Request, context: *Context, url: []const u8, payload:
 
     const result = std.process.run(context.allocator, context.io, .{
         .argv = argv[0..count],
+        // GTK/WebKit may mutate libc's environ after Zig captures it. Use the
+        // owned startup snapshot so spawning curl never reads a stale envp.
+        .environ_map = context.environ_map,
         .stdout_limit = .limited(64 * 1024),
         .stderr_limit = .limited(8 * 1024),
         .timeout = .{ .duration = .{ .clock = .awake, .raw = .fromSeconds(10) } },
